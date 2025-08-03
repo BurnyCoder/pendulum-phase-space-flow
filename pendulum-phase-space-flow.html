@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pendulum Phase Space Flow</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow: hidden; /* Prevent scrollbars */
+        }
+        .info-panel {
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 flex flex-col items-center justify-center h-screen">
+
+    <div class="w-full max-w-6xl p-4 md:p-6">
+        <h1 class="text-2xl md:text-3xl font-bold text-center mb-4 text-cyan-400">Pendulum Phase Space Flow</h1>
+        <canvas id="simulationCanvas" class="w-full h-auto bg-gray-800 rounded-xl shadow-2xl border border-gray-700"></canvas>
+    </div>
+
+    <div class="absolute bottom-4 left-4 bg-gray-800 bg-opacity-70 info-panel p-4 rounded-lg shadow-lg max-w-xs md:max-w-sm">
+        <h2 class="text-lg font-bold mb-2 text-cyan-400">Controls & Info</h2>
+        <p class="text-sm text-gray-300">
+            This simulation shows a simple pendulum (left) and its trajectory in phase space (right).
+        </p>
+        <ul class="list-disc list-inside mt-2 text-sm text-gray-400">
+            <li><span class="font-semibold text-gray-300">Phase Space:</span> Plots angular velocity (ω) vs. angle (θ).</li>
+            <li><span class="font-semibold text-gray-300">Trajectories:</span> Each line represents the evolution of the pendulum from a different starting energy.</li>
+            <li><span class="font-semibold text-gray-300">Damping:</span> A small amount of damping is included, causing the trajectories to spiral towards the stable equilibrium point at (0, 0).</li>
+        </ul>
+        <button id="resetButton" class="mt-4 w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300">
+            Reset Simulation
+        </button>
+    </div>
+
+
+    <script>
+        // --- Canvas & Context Setup ---
+        const canvas = document.getElementById('simulationCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Set canvas resolution. We use a higher internal resolution for clarity.
+        const internalWidth = 1600;
+        const internalHeight = 800;
+        canvas.width = internalWidth;
+        canvas.height = internalHeight;
+        
+        // --- Simulation Parameters ---
+        const g = 9.81;  // Gravity
+        const L = 1.0;   // Pendulum length (for calculation, not drawing)
+        const damping = 0.05; // Damping factor
+        const dt = 0.02; // Time step for integration
+
+        // --- State Variables ---
+        let particles = [];
+        const numParticles = 80; // Number of trajectories to draw
+
+        // --- Drawing & Layout Parameters ---
+        const pendulumOriginX = internalWidth / 4;
+        const pendulumOriginY = internalHeight / 2 - 100;
+        const pendulumArmLength = 180; // Visual length
+        const bobRadius = 15;
+
+        const phaseSpaceOriginX = 3 * internalWidth / 4;
+        const phaseSpaceOriginY = internalHeight / 2;
+        const phaseSpaceScaleX = 150 / Math.PI; // Scale for theta axis
+        const phaseSpaceScaleY = 50; // Scale for omega axis
+
+        // --- Particle Class ---
+        // Represents a single point in phase space, which corresponds to a pendulum state.
+        class Particle {
+            constructor(theta, omega) {
+                this.theta = theta; // Angle
+                this.omega = omega; // Angular velocity
+                this.path = [{ theta, omega }]; // Store history for drawing trajectory
+                this.color = `hsl(${Math.random() * 360}, 80%, 60%)`;
+                this.maxPathLength = 500; // Limit path history
+            }
+
+            // Update state using Runge-Kutta 4th order integration
+            update() {
+                const f = (th, om) => - (g / L) * Math.sin(th) - damping * om;
+
+                const k1_omega = f(this.theta, this.omega);
+                const k1_theta = this.omega;
+
+                const k2_omega = f(this.theta + 0.5 * dt * k1_theta, this.omega + 0.5 * dt * k1_omega);
+                const k2_theta = this.omega + 0.5 * dt * k1_omega;
+
+                const k3_omega = f(this.theta + 0.5 * dt * k2_theta, this.omega + 0.5 * dt * k2_omega);
+                const k3_theta = this.omega + 0.5 * dt * k2_omega;
+
+                const k4_omega = f(this.theta + dt * k3_theta, this.omega + dt * k3_omega);
+                const k4_theta = this.omega + dt * k3_omega;
+
+                this.omega += (dt / 6.0) * (k1_omega + 2 * k2_omega + 2 * k3_omega + k4_omega);
+                this.theta += (dt / 6.0) * (k1_theta + 2 * k2_theta + 2 * k3_theta + k4_theta);
+
+                // Keep theta within [-PI, PI] for cleaner plotting
+                this.theta = (this.theta + Math.PI) % (2 * Math.PI) - Math.PI;
+
+                this.path.push({ theta: this.theta, omega: this.omega });
+                if (this.path.length > this.maxPathLength) {
+                    this.path.shift();
+                }
+            }
+        }
+
+        // --- Initialization ---
+        function initialize() {
+            particles = [];
+            // Create particles with different initial energies (different starting omegas)
+            for (let i = 0; i < numParticles; i++) {
+                const theta = (Math.random() - 0.5) * 0.1; // Start near the bottom
+                const omega = (i / numParticles) * 12 - 6; // Spread out angular velocities
+                particles.push(new Particle(theta, omega));
+            }
+             // Add a few particles with high initial angle
+            for (let i = 0; i < 10; i++) {
+                 particles.push(new Particle(Math.PI * 0.9, (Math.random() - 0.5) * 4));
+            }
+        }
+        
+        document.getElementById('resetButton').addEventListener('click', initialize);
+
+        // --- Drawing Functions ---
+        function drawGrid() {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.lineWidth = 1;
+
+            // Vertical separator
+            ctx.beginPath();
+            ctx.moveTo(internalWidth / 2, 0);
+            ctx.lineTo(internalWidth / 2, internalHeight);
+            ctx.stroke();
+            
+            // Phase space axes
+            // Theta axis (x)
+            ctx.beginPath();
+            ctx.moveTo(phaseSpaceOriginX - Math.PI * phaseSpaceScaleX, phaseSpaceOriginY);
+            ctx.lineTo(phaseSpaceOriginX + Math.PI * phaseSpaceScaleX, phaseSpaceOriginY);
+            ctx.stroke();
+            // Omega axis (y)
+            ctx.beginPath();
+            ctx.moveTo(phaseSpaceOriginX, 0);
+            ctx.lineTo(phaseSpaceOriginX, internalHeight);
+            ctx.stroke();
+
+            // Axis labels
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.font = '20px Inter';
+            ctx.textAlign = 'center';
+            ctx.fillText('Pendulum Simulation', pendulumOriginX, 40);
+            ctx.fillText('Phase Space', phaseSpaceOriginX, 40);
+            ctx.fillText('θ (angle)', phaseSpaceOriginX, phaseSpaceOriginY + 30);
+            ctx.save();
+            ctx.translate(phaseSpaceOriginX - 30, phaseSpaceOriginY);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText('ω (angular velocity)', 0, 0);
+            ctx.restore();
+            
+            // Pi labels for theta axis
+            ctx.fillText('-π', phaseSpaceOriginX - Math.PI * phaseSpaceScaleX, phaseSpaceOriginY + 30);
+            ctx.fillText('π', phaseSpaceOriginX + Math.PI * phaseSpaceScaleX, phaseSpaceOriginY + 30);
+
+        }
+
+        function drawPendulum(particle) {
+            const bobX = pendulumOriginX + pendulumArmLength * Math.sin(particle.theta);
+            const bobY = pendulumOriginY + pendulumArmLength * Math.cos(particle.theta);
+
+            // Arm
+            ctx.strokeStyle = particle.color;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(pendulumOriginX, pendulumOriginY);
+            ctx.lineTo(bobX, bobY);
+            ctx.stroke();
+
+            // Pivot
+            ctx.fillStyle = '#FFF';
+            ctx.beginPath();
+            ctx.arc(pendulumOriginX, pendulumOriginY, 8, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // Bob
+            ctx.fillStyle = particle.color;
+            ctx.beginPath();
+            ctx.arc(bobX, bobY, bobRadius, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+
+        function drawPhaseSpace(particle) {
+            // Draw the full trajectory
+            ctx.strokeStyle = particle.color;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            for (let i = 0; i < particle.path.length; i++) {
+                const point = particle.path[i];
+                const x = phaseSpaceOriginX + point.theta * phaseSpaceScaleX;
+                const y = phaseSpaceOriginY - point.omega * phaseSpaceScaleY; // Y is inverted in canvas
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+
+            // Draw the current point as a dot
+            const currentX = phaseSpaceOriginX + particle.theta * phaseSpaceScaleX;
+            const currentY = phaseSpaceOriginY - particle.omega * phaseSpaceScaleY;
+            ctx.fillStyle = particle.color;
+            ctx.beginPath();
+            ctx.arc(currentX, currentY, 4, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+
+        // --- Animation Loop ---
+        function animate() {
+            // Clear canvas
+            ctx.fillStyle = '#111827'; // bg-gray-900
+            ctx.fillRect(0, 0, internalWidth, internalHeight);
+
+            drawGrid();
+
+            // Update and draw each particle
+            particles.forEach(p => {
+                p.update();
+                drawPhaseSpace(p);
+            });
+            
+            // Only draw the first particle's pendulum for clarity
+            if(particles.length > 0) {
+                drawPendulum(particles[0]);
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // --- Start Simulation ---
+        initialize();
+        animate();
+        
+        // --- Responsive Canvas ---
+        // This part is simplified. For perfect responsiveness, we'd need to rescale drawings.
+        // Here, we just use CSS to scale the canvas element itself.
+        function resizeCanvas() {
+            const container = canvas.parentElement;
+            const aspect = internalHeight / internalWidth;
+            const newWidth = container.clientWidth;
+            const newHeight = newWidth * aspect;
+            canvas.style.width = `${newWidth}px`;
+            canvas.style.height = `${newHeight}px`;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas(); // Initial call
+
+    </script>
+</body>
+</html>
